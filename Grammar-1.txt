@@ -1,0 +1,95 @@
+stop :- STOP
+skip :- SKIP
+eq :- :=
+chanin :- ?
+chanout :- !
+copen :- {
+cclose :- }
+if :- IF
+seqk :- SEQ
+park :- PAR
+int :- INT
+chan :- CHAN
+sqopen :- [
+sqclose :- ]
+popen :- (
+pclose :- )
+declend :- : 
+eqq :- =
+proc :- PROC
+neg :-  -
+not :- NOT
+plus :- +
+minus :- -
+mul :- *
+fs :- /
+bs :- \
+eqc :- =
+lt :- <
+le:- <=
+gt :- >
+ge :- >=
+neq :- <>
+and :- &
+or :- |
+
+dyadic.operator :- 
+
+process :- stop | skip | action | construction | instance | specification process
+
+action :- assignment | input | output
+
+assignment :- variable eq expr
+
+input :- channel chanin variable
+
+output :- channel chanout expr
+
+construction :- seq | cond | loop | par | alt
+
+seq :- seqk copen { process } cclose
+
+cond :- if { choice }
+
+choice :- bool copen process close
+
+bool :- expr
+
+loop :- while bool copen process cclose
+
+par :- park copen { process } cclose
+
+alt :- guard copen process cclose
+
+guard :- input | bool & input
+
+type :- primitive.type | sqopen literal sqclose primitive.type
+
+primitive.type = int | chan
+
+literal :- integer
+
+element :- name | name sqopen expr sqclose
+
+variable :- element 
+
+channel :- element
+
+operand = element | literal | popen expr pclose
+
+expr :- monadic.operator operand | operand dyadic.operator operand | operand 
+
+specification :- decleration | definition 
+
+decleration :- type name declend | int name = expr
+
+definition :- procname popen {0,formal  } pclose copen process cclose declend
+
+formal :- primitive.type name
+
+instance :- name popen {0, element} pclose
+
+monadic.operator :- neg | not
+
+
+
