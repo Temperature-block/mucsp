@@ -454,8 +454,11 @@ def construction(toklist,tokpos):
     elif(pa := par(toklist,tokpos)):
        return ({"construction":pa[0]},pa[1])
 
+'''
+wxclude alt for now
     elif(al := alt(toklist,tokpos)):
        return ({"construction":alt[0]},alt[1])
+'''
 
 def output(toklist,tokpos):
 
