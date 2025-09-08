@@ -1,0 +1,7 @@
+esp32
+freertos tasks assign cores etc
+
+pc
+threads
+
+

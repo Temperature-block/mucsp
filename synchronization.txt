@@ -1,0 +1,8 @@
+esp32 
+task notifications or event groups
+
+pc/linux
+semaphores
+
+esp32 + pc 
+just combine both?????????

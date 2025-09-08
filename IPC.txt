@@ -1,0 +1,12 @@
+processes need to communicate
+
+ESP32
+CHannels ---> queues (reciever blocks till sender fills up queue) (keep len 1)
+
+PC/Linux
+PIPES length 1
+
+Inter device
+tcp message passing
+sender :- send(i want to send data) ,while (wait for reciever to message read){ block },send data
+reciever :- while(wait till sender sends ready) send ready, recieve data 
