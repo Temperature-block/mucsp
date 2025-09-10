@@ -1,0 +1,201 @@
+ B:
+SEQ{
+INT A:
+    SEQ{
+    A := A + B
+
+}
+}
+
+:
+SEQ{
+INT A:
+    SEQ{
+    A := A + B
+
+}
+}
+
+
+SEQ{
+INT A:
+    SEQ{
+    A := A + B
+
+}
+}
+
+{
+INT A:
+    SEQ{
+    A := A + B
+
+}
+}
+
+
+INT A:
+    SEQ{
+    A := A + B
+
+}
+}
+
+ A:
+    SEQ{
+    A := A + B
+
+}
+}
+
+:
+    SEQ{
+    A := A + B
+
+}
+}
+
+
+    SEQ{
+    A := A + B
+
+}
+}
+
+{
+    A := A + B
+
+}
+}
+
+
+    A := A + B
+
+}
+}
+
+ := A + B
+
+}
+}
+
+ A + B
+
+}
+}
+
+ + B
+
+}
+}
+
+ B
+
+}
+}
+
+
+
+}
+}
+
+
+}
+
+
+
+[('INT', <re.Match object; span=(0, 3), match='INT'>), ('NAME', <re.Match object; span=(0, 1), match='B'>), ('DECLEND', <re.Match object; span=(0, 1), match=':'>), ('SEQ', <re.Match object; span=(0, 3), match='SEQ'>), ('COPEN', <re.Match object; span=(0, 1), match='{'>), ('INT', <re.Match object; span=(0, 3), match='INT'>), ('NAME', <re.Match object; span=(0, 1), match='A'>), ('DECLEND', <re.Match object; span=(0, 1), match=':'>), ('SEQ', <re.Match object; span=(0, 3), match='SEQ'>), ('COPEN', <re.Match object; span=(0, 1), match='{'>), ('NAME', <re.Match object; span=(0, 1), match='A'>), ('EQ', <re.Match object; span=(0, 2), match=':='>), ('NAME', <re.Match object; span=(0, 1), match='A'>), ('PLUS', <re.Match object; span=(0, 1), match='+'>), ('NAME', <re.Match object; span=(0, 1), match='B'>), ('CCLOSE', <re.Match object; span=(0, 1), match='}'>), ('CCLOSE', <re.Match object; span=(0, 1), match='}'>)]
+8
+{
+  "process": {
+    "uuid": "F2bI6YmFbZ2M",
+    "specproc": [
+      {
+        "specifiation": {
+          "decleration": [
+            {
+              "type": {
+                "ptype": "INT"
+              }
+            },
+            "B"
+          ]
+        }
+      },
+      {
+        "process": {
+          "uuid": "cOS4sAHQrxWi",
+          "constructionproc": {
+            "construction": {
+              "seq": [
+                {
+                  "process": {
+                    "uuid": "AkQcqZa19wJo",
+                    "specproc": [
+                      {
+                        "specifiation": {
+                          "decleration": [
+                            {
+                              "type": {
+                                "ptype": "INT"
+                              }
+                            },
+                            "A"
+                          ]
+                        }
+                      },
+                      {
+                        "process": {
+                          "uuid": "mq2Ae4ERxVWt",
+                          "constructionproc": {
+                            "construction": {
+                              "seq": [
+                                {
+                                  "process": {
+                                    "uuid": "Y1wxJZ71gwpo",
+                                    "actionproc": {
+                                      "action": {
+                                        "assignment": [
+                                          {
+                                            "variable": {
+                                              "element": "A"
+                                            }
+                                          },
+                                          {
+                                            "expr": [
+                                              {
+                                                "operand": {
+                                                  "element": "A"
+                                                }
+                                              },
+                                              {
+                                                "dyadic_operator": "PLUS"
+                                              },
+                                              {
+                                                "operand": {
+                                                  "element": "B"
+                                                }
+                                              }
+                                            ]
+                                          }
+                                        ]
+                                      }
+                                    }
+                                  }
+                                }
+                              ]
+                            }
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        }
+      }
+    ]
+  }
+}

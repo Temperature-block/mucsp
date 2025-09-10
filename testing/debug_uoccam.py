@@ -1,34 +1,25 @@
 import re
 import sys
 import lark
-import json
-import copy
 
-import secrets
-import string
+import faulthandler
+import signal
+import sys
 
-def make_uuid(length=12):
-    if length < 1:
-        raise ValueError("Length must be at least 1")
-    letters = string.ascii_letters
-    letters_and_digits = string.ascii_letters + string.digits
-    first_char = secrets.choice(letters)
-    remaining = ''.join(secrets.choice(letters_and_digits) for _ in range(length - 1))
-    return first_char + remaining
+# Dump traceback when receiving SIGUSR1 (optional)
+faulthandler.enable(file=sys.stderr)
 
-DEBUG = 1
-procuuids = []
+# Or dump every 5 seconds automatically
+import time
 
-namedprocs =  []
+def periodic_stack_dump():
+    while True:
+        time.sleep(5)
+        print("\n--- Current stack ---")
+        faulthandler.dump_traceback(file=sys.stderr)
 
-
-def append_unique(name, data_dict):
-    # Check if name already exists in any dict
-    for entry in global_list:
-        if name in entry:
-            raise ValueError(f"Duplicate name detected: {name}")
-    # Append if unique
-    namedprocs.append({name: data_dict})
+import threading
+threading.Thread(target=periodic_stack_dump, daemon=True).start()
 
 LEX_GRAMMAR = '''
 stop :- STOP
@@ -70,7 +61,7 @@ or :- |
 
 
 TOKENS = [
-    ("WS",      r"[ \t\n]"),
+    ("WS",      r"[ \t\n]+"),
     ("SCOLON",   r";"),
     ("STOP",    r"STOP"),
     ("SKIP",    r"SKIP"),
@@ -107,14 +98,11 @@ TOKENS = [
     ("POPEN",   r"\("),
     ("PCLOSE",  r"\)"),
     ("NAME",    r"[a-zA-Z_][a-zA-Z0-9_]*"),
-    ("INTEGER", r"[0-9]+"),
+    ("INTEGER", r"[0-9]*"),
 ]
 
 nlines = 0
 def get_token(string):
-    #print(string)
-    if not string:
-       return None
     global nlines
     for tag, pattern in TOKENS:
         match = re.match(r'^' + pattern, string)
@@ -123,8 +111,8 @@ def get_token(string):
                if match.group() == "\n":
                   nlines = nlines+1
                return get_token(string[match.end():])
-            return (tag, match,string[match.end():])
-    print("unrecognized token at line ",nlines,string[0:])
+            return (tag, match)
+    print("unrecognized token at line ",nlines,string[0:20])
 
 RUL_GRAMMAR = '''
 process :- STOP -
@@ -138,13 +126,6 @@ action :- assignment -
         | input -
         | output -
 
-simple_proc :- STOP -
-         | SKIP -
-         | action -
-         | construction
-         | instance
-         | simple_specification simple_proc
-
 assignment :- variable EQ expr -
 
 input :- channel CHANIN variable -
@@ -155,7 +136,7 @@ construction :- seq | cond | loop | par | alt
 
 seq :- SEQ COPEN { process } CCLOSE
 
-cond :- IF COPEN { choice } CCLOSE
+cond :- IF COPEN choice CCLOSE
 
 choice :- bool COPEN process CCLOSE
 
@@ -179,7 +160,7 @@ primitive_type :- INT
 literal :- integer      # Define a token INTEGER as needed
 
 element :- NAME 
-          | NAME SQOPEN literal SQCLOSE 
+          | NAME SQOPEN expr SQCLOSE
 
 variable :- element
 
@@ -195,8 +176,6 @@ expr :- monadic_operator operand
 
 specification :- declaration 
                 | definition
-
-simple_specification :- declaration
 
 declaration :- type NAME DECLEND 
               | INT NAME EQQ expr
@@ -232,6 +211,41 @@ def expecttok(toklist,tokpos,expect):
        return toklist[tokpos][1].group()
     else:
        return None
+
+'''
+alt :- guard COPEN process CCLOSE
+
+============================================
+specification :- declaration
+                | definition
+
+declaration :- type NAME DECLEND
+              | INT NAME EQQ expr
+
+definition :- NAME POPEN { formal } PCLOSE COPEN process CCLOSE DECLEND
+
+formal :- primitive_type NAME
+
+instance :- NAME POPEN { element } PCLOSE
+
+monadic_operator :- MINUS
+                  | NOT
+
+dyadic_operator :- PLUS
+                 | MINUS
+                 | MUL
+                 | FS
+                 | BS
+                 | EQ
+                 | EQQ
+                 | LT
+                 | LE
+                 | GT
+                 | GE
+                 | NEQ
+                 | AND
+                 | OR
+'''
 
 def monadic_operator(toklist,tokpos):
     if(expecttok(toklist,tokpos,"MINUS")):
@@ -295,12 +309,11 @@ def definition(toklist,tokpos):
            tokpos = tokpos + 1
            if(expecttok(toklist,tokpos,"COPEN")):
              tokpos = tokpos + 1
-             if(tok := simple_process(toklist,tokpos)):
+             if(tok := process(toklist,tokpos)):
                 tokpos = tok[1]
                 if(expecttok(toklist,tokpos,"CCLOSE")):
                    tokpos = tokpos + 1
                    if(expecttok(toklist,tokpos,"DECLEND")):
-                      append_unique(nam[0],formallist)
                       return ({"definition":[nam[0],formallist,tok[0]]},tokpos+1)
 
 def decleration(toklist,tokpos):
@@ -325,10 +338,6 @@ def specification(toklist,tokpos):
     elif (defn := definition(toklist,tokpos)):
        return ({"specifiation":defn[0]},defn[1])
 
-def simple_specification(toklist,tokpos):
-    if (decl := qdecleration(toklist,tokpos)):
-       return ({"specifiation":decl[0]},decl[1])
-
 def operand(toklist,tokpos):
     if (lit := element(toklist,tokpos)):
        return ({"operand":lit[0]},lit[1])
@@ -338,7 +347,7 @@ def operand(toklist,tokpos):
        if(exp := expr(toklist,tokpos)):
           tokpos = exp[1]
           if (expecttok(toklist,tokpos,"PCLOSE")):
-             return ({"operand":["(",expr[0],")"]},expr[1])
+             return ({"operand":expr[0]},expr[1])
 
 def expr(toklist,tokpos):
     if (mon := monadic_operator(toklist,tokpos)):
@@ -356,6 +365,8 @@ def expr(toklist,tokpos):
 
 def element(toklist,tokpos):
     if(tok := expecttok(toklist,tokpos,"NAME")):
+      return ({"element":tok},tokpos+1)
+    elif(tok := expecttok(toklist,tokpos,"NAME")):
       tokpos = tokpos+1
       if(expecttok(toklist,tokpos,"SQOPEN")):
          tokpos = tokpos+1
@@ -364,7 +375,6 @@ def element(toklist,tokpos):
              if(expecttok(toklist,tokpos,"SQCLOSE")):
                tokpos = tokpos + 1
                return ({"element":[tok,lit[0]]},tokpos+1)
-      return ({"element":tok},tokpos)
 
 def channel(toklist,tokpos):
     if (lit := element(toklist,tokpos)):
@@ -401,10 +411,10 @@ def par(toklist,tokpos):
        tokpos = tokpos+1
        if(expecttok(toklist,tokpos,"COPEN")):
           tokpos = tokpos+1
-          if (proc := simple_process(toklist,tokpos)):
+          if (proc := process(toklist,tokpos)):
               tokpos = proc[1]
               proclist= [proc[0]]
-              while(proc := simple_process(toklist,tokpos)):
+              while(proc := process(toklist,tokpos)):
                   tokpos = proc[1]
                   proclist.append(proc[0])
               if(expecttok(toklist,tokpos,"CCLOSE")):
@@ -417,7 +427,7 @@ def loop(toklist,tokpos):
           tokpos = bul[1]
           if(expecttok(toklist,tokpos,"COPEN")):
              tokpos=tokpos+1
-             if (proc := simple_process(toklist,tokpos)):
+             if (proc := process(toklist,tokpos)):
                  tokpos =  proc[1]
                  if(expecttok(toklist,tokpos,"CCLOSE")):
                     return({"loop":[bul[0],proc[0]]},tokpos+1)
@@ -427,7 +437,7 @@ def choice(toklist,tokpos):
        tokpos = bul[1]
        if(expecttok(toklist,tokpos,"COPEN")):
           tokpos = tokpos+1
-          if (proc := simple_process(toklist,tokpos)):
+          if (proc := process(toklist,tokpos)):
               tokpos =  proc[1]
               if(expecttok(toklist,tokpos,"CCLOSE")):
                   return({"choice":[bul[0],proc[0]]},tokpos+1)
@@ -439,23 +449,18 @@ def cond(toklist,tokpos):
           tokpos = tokpos+1
           if (proc := choice(toklist,tokpos)):
               tokpos = proc[1]
-              proclist = []
-              proclist.append(proc[0])
-              while(proc := choice(toklist,tokpos)):
-                   tokpos = proc[1]
-                   proclist.append(proc[0])
               if(expecttok(toklist,tokpos,"CCLOSE")):
-                  return({"cond":proclist},tokpos+1)
+                  return({"cond":proc[0]},tokpos+1)
 
 def seq(toklist,tokpos):
     if(expecttok(toklist,tokpos,"SEQ")):
        tokpos = tokpos+1
        if(expecttok(toklist,tokpos,"COPEN")):
           tokpos = tokpos+1
-          if (proc := simple_process(toklist,tokpos)):
+          if (proc := process(toklist,tokpos)):
               tokpos = proc[1]
               proclist= [proc[0]]
-              while(proc := simple_process(toklist,tokpos)):
+              while(proc := process(toklist,tokpos)):
                   tokpos = proc[1]
                   proclist.append(proc[0])
               if(expecttok(toklist,tokpos,"CCLOSE")):
@@ -520,144 +525,35 @@ def action(toklist,tokpos):
        return ({"action":op[0]},op[1])
 
 def process(toklist,tokpos):
-    global procuuids
-    uuid = make_uuid()
-    procuuids.append(uuid)
+
     if(expecttok(toklist,tokpos,"STOP")):
        tokpos = tokpos + 1
-       return ({"process":{"uuid":uuid,"STOPPROC":"STOP"}},tokpos)
+       return ({"process":"STOP"},tokpos)
 
     elif(expecttok(toklist,tokpos,"SKIP")):
        tokpos = tokpos + 1
-       return ({"process":{"uuid":uuid,"SKIPPROC":"SKIP"}},tokpos)
+       return ({"process":"SKIP"},tokpos)
 
     elif(actionres := action(toklist,tokpos)):
-       return ({"process":{"uuid":uuid,"actionproc":actionres[0]}},actionres[1])
+       return ({"process":actionres[0]},actionres[1])
 
     elif(conres := construction(toklist,tokpos)):
-       return ({"process":{"uuid":uuid,"constructionproc":conres[0]}},conres[1])
+       return ({"process":conres[0]},conres[1])
 
     elif(inres := instance(toklist,tokpos)):
-       return ({"process":{"uuid":uuid,"instanceproc":inres[0]}},inres[1])
+       return ({"process":inres[0]},inres[1])
 
     elif(spec := specification(toklist,tokpos)):
        tokpos = spec[1]
        if (proc := process(toklist,tokpos)):
-          return ({"process":{"uuid":uuid,"specproc":[spec[0],proc[0]]}},proc[1])
+          return ({"process":[spec[0],proc[0]]},proc[1])
 
-def simple_process(toklist,tokpos):
-    global procuuids
-    uuid = make_uuid()
-    procuuids.append(uuid)
-    if(expecttok(toklist,tokpos,"STOP")):
-       tokpos = tokpos + 1
-       return ({"process":{"uuid":uuid,"STOPPROC":"STOP"}},tokpos)
-
-    elif(expecttok(toklist,tokpos,"SKIP")):
-       tokpos = tokpos + 1
-       return ({"process":{"uuid":uuid,"SKIPPROC":"SKIP"}},tokpos)
-
-    elif(actionres := action(toklist,tokpos)):
-       return ({"process":{"uuid":uuid,"actionproc":actionres[0]}},actionres[1])
-
-    elif(conres := construction(toklist,tokpos)):
-       return ({"process":{"uuid":uuid,"constructionproc":conres[0]}},conres[1])
-
-    elif(inres := instance(toklist,tokpos)):
-       return ({"process":{"uuid":uuid,"instanceproc":inres[0]}},inres[1])
-
-    elif(spec := simple_specification(toklist,tokpos)):
-       tokpos = spec[1]
-       if (proc := simple_process(toklist,tokpos)):
-          return ({"process":{"uuid":uuid,"specproc":[spec[0],proc[0]]}},proc[1])
 
 def handle_parse(toklist):
-    return simple_process(toklist,0) #avoid proc for now
+    return process(toklist,0)
 
-dependency_graph = {}
-uuid_declarations = {}
-visited = set()
-
-pnodes = {}
-
-def traverse_process(node, parent_uuid = None,parent_declarations=None):
-    if node is null:
-        return
-    uuid = node["process"]["uuid"]
-    if uuid not in dependency_graph:
-        dependency_graph[uuid] = []
-    if parent_uuid is not null:
-        dependency_graph[parent_uuid].append(uuid)
-    if uuid in visited:
-        return
-    visited.add(uuid)
-    if "instanceproc" in node["process"]:
-        instance = node["process"]["instanceproc"]
-        referenced_name = instance[0]
-        dependency_graph[uuid].append(referenced_name)
-
-    if "constructionproc" in node["process"]:
-        construction = node["process"]["constructionproc"]
-        for child in get_child_processes(construction):
-            traverse_process(child, uuid)
-
-    if "specproc" in node["process"]:
-        spec = node["process"]["specproc"]
-        declaration_part = spec[0]
-        next_process = spec[1]
-        if "decleration" in declaration_part:
-            decl_list = declaration_part["decleration"]
-            if isinstance(decl_list[0], dict) and "type" in decl_list[0]:
-                first_elem = decl_list[0]
-                name = decl_list[1]
-                uuid_declarations[uuid][name] = first_elem["type"]
-            elif isinstance(decl_list[1], dict) and "expr" in decl_list[1]:
-                name = decl_list[0]
-                expression_part = decl_list[1]
-                uuid_declarations[uuid][name] = {"type": "INT", "value": expression_part}
-        traverse_process(next_process, uuid)
-        del spec[0]
-
-
-detached_blocks = []
-
-def detangle_par_blocks(node):
-    if node is None:
-        return
-    if isinstance(node, list):
-        for child_node in node:
-            detangle_par_blocks(child_node, detached_processes)
-
-    elif "constructionproc" in node["process"] and "par" in node["process"]["constructionproc"]:
-        par_list = node["process"]["constructionproc"]["par"]
-        new_par_list = []
-        for child_proc in par_list:
-            child_uuid = child_proc["process"]["uuid"]
-            detached_processes[child_uuid] = child_proc
-            new_par_list.append(child_uuid)
-            detangle_par_blocks(child_proc, detached_processes)
-
-        node["process"]["constructionproc"]["par"] = new_par_list
-    elif "constructionproc" in node["process"]:
-        construction = node["process"]["constructionproc"]
-        for key in construction:
-            detangle_par_blocks(construction[key], detached_processes)
-    elif "specproc" in node["process"]:
-        next_process = node["process"]["specproc"][1]
-        detangle_par_blocks(next_process, detached_processes)
-
-def get_child_processes(construction):
-    children = []
-    if "seq" in construction:
-        children = construction["seq"]
-    else if "par" in construction:
-        children = construction["par"]
-    else if "cond" in construction:
-        children = [construction["cond"]["choice"]]
-    else if "loop" in construction:
-        children = [construction["loop"][1]]
-    return children
-
+#def get_process_graph_populate_ids(tree):
+#    
 
 def main():
     filestr = ""
@@ -665,27 +561,17 @@ def main():
     if(len(sys.argv) > 1):
        with open(sys.argv[1],"r") as file:
              filestr = file.read()
-       while filestr:
-          tok =  get_token(filestr)
+       while filestr != "":
+          tok = get_token(filestr)
           if tok:
-             filestr = tok[2]
-             print(filestr)
-             toklist.append((tok[0],tok[1]))
-          else:
-             break
-
-       if DEBUG:
-          print(toklist)
-
+             filestr = filestr[tok[1].end():]
+             toklist.append(tok)
        treejson = handle_parse(toklist)
-       print(nlines)
        if(treejson):
-         print(json.dumps(treejson[0], indent=2))
-         create_dependency_graph(treejson[0])
-         #create_communication_graph
-         #partial conversion to c
-         #legalize communication etc
-
+         print(json.dumps(strings, indent=2))
+         #pgraph = get_process_graph_populate_ids(treejson)
+         #inline_process
+         #create_communication_dependency graph
        else:
          print("parse error")
 

@@ -1,0 +1,8 @@
+INT B:
+SEQ{
+INT A:
+    SEQ{
+    A := A + B
+
+}
+}

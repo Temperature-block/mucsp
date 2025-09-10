@@ -135,22 +135,22 @@ Lexical
     ("INTEGER", r"[0-9]*")
 
 BNF
-process :- STOP -
-         | SKIP -
-         | action -
+process :- STOP 
+         | SKIP 
+         | action 
          | construction
          | instance
          | specification process
 
-action :- assignment -
-        | input -
-        | output -
+action :- assignment 
+        | input 
+        | output 
 
-assignment :- variable EQ expr -
+assignment :- variable EQ expr (trivial conv c)
 
-input :- channel CHANIN variable -
+input :- channel CHANIN variable 
 
-output :- channel CHANOUT expr -
+output :- channel CHANOUT expr 
 
 construction :- seq | cond | loop | par | alt
 
@@ -160,9 +160,9 @@ cond :- IF COPEN choice CCLOSE
 
 choice :- bool COPEN process CCLOSE
 
-bool :- expr
+bool :- expr (trivial conv c)
 
-loop :- WHILE bool COPEN process CCLOSE      # Note: WHILE token not defined, add if needed
+loop :- WHILE bool COPEN process CCLOSE 
 
 par :- PAR COPEN { process } CCLOSE
 
@@ -172,7 +172,7 @@ guard :- input
         | bool AND input
 
 type :- primitive_type
-      | SQOPEN literal SQCLOSE primitive_type
+      | SQOPEN literal SQCLOSE primitive_type (trivial conv c)
 
 primitive_type :- INT
                 | CHAN
@@ -180,7 +180,7 @@ primitive_type :- INT
 literal :- integer      # Define a token INTEGER as needed
 
 element :- NAME
-          | NAME SQOPEN expr SQCLOSE
+          | NAME SQOPEN expr SQCLOSE (trivial conv c)
 
 variable :- element
 
@@ -190,9 +190,9 @@ operand :- element
           | literal
           | POPEN expr PCLOSE
 
-expr :- monadic_operator operand
-       | operand dyadic_operator operand
-       | operand
+expr :- monadic_operator operand (trivial conv c)
+       | operand dyadic_operator operand (trivial conv c)
+       | operand (trivial conv c)
 
 specification :- declaration
                 | definition
