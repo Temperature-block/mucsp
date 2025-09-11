@@ -215,7 +215,6 @@ dyadic_operator :- PLUS
                  | MUL 
                  | FS
                  | BS
-                 | EQ
                  | EQQ
                  | LT
                  | LE
@@ -250,8 +249,6 @@ def dyadic_operator(toklist,tokpos):
        return ({"dyadic_operator":"FS"},tokpos+1)
     elif(expecttok(toklist,tokpos,"BS")):
        return ({"dyadic_operator":"BS"},tokpos+1)
-    elif(expecttok(toklist,tokpos,"EQ")):
-       return ({"dyadic_operator":"EQ"},tokpos+1)
     elif(expecttok(toklist,tokpos,"EQQ")):
        return ({"dyadic_operator":"EQQ"},tokpos+1)
     elif(expecttok(toklist,tokpos,"LE")):
@@ -317,7 +314,8 @@ def decleration(toklist,tokpos):
             if(expecttok(toklist,tokpos,"EQQ")):
                tokpos = tokpos + 1
                if(typ := expr(toklist,tokpos)):
-                  return ({"decleration":[nam[0],expr[0]]},typ[1])
+                  exprlist,varlist = leagalize_exprs(typ[0])
+                  return ({"decleration":[nam[0],exprlist,varlist]},typ[1])
 
 def specification(toklist,tokpos):
     if (decl := decleration(toklist,tokpos)):
@@ -338,7 +336,7 @@ def operand(toklist,tokpos):
        if(exp := expr(toklist,tokpos)):
           tokpos = exp[1]
           if (expecttok(toklist,tokpos,"PCLOSE")):
-             return ({"operand":["(",expr[0],")"]},expr[1])
+             return ({"operand":["(",exp[0],")"]},exp[1])
 
 def expr(toklist,tokpos):
     if (mon := monadic_operator(toklist,tokpos)):
@@ -352,7 +350,7 @@ def expr(toklist,tokpos):
               if (op2 := operand(toklist,tokpos)):
                  return ({"expr":[op1[0],dop[0],op2[0]]},op2[1])
            else:
-              return ({"expr":op1[1]},op1[1])
+              return ({"expr":op1[0]},op1[1])
 
 def element(toklist,tokpos):
     if(tok := expecttok(toklist,tokpos,"NAME")):
@@ -364,7 +362,7 @@ def element(toklist,tokpos):
              if(expecttok(toklist,tokpos,"SQCLOSE")):
                tokpos = tokpos + 1
                return ({"element":[tok,lit[0]]},tokpos+1)
-      return ({"element":tok},tokpos)
+      return ({"element":[tok]},tokpos)
 
 def channel(toklist,tokpos):
     if (lit := element(toklist,tokpos)):
@@ -386,7 +384,7 @@ def primitive_type(toklist,tokpos):
 
 def type(toklist,tokpos):
     if (ptype := primitive_type(toklist,tokpos)):
-        return ({"type":ptype[0]},ptype[1])
+        return ({"type":ptype[0]['primitive_type']},ptype[1])
     elif(expecttok(toklist,tokpos,"SQOPEN")):
          tokpos = tokpos+1
          if (lit := literal(toklist,tokpos)):
@@ -394,7 +392,7 @@ def type(toklist,tokpos):
              if(expecttok(toklist,tokpos,"SQCLOSE")):
                tokpos = tokpos + 1
                if (ptype := primitive_type(toklist,tokpos)):
-                   return ({"type":[lit[0],ptype[0]]},ptype[1])
+                   return ({"type":[lit[0],ptype[0]['primitive_type']]},ptype[1]) #type can be encoded directly for now
 
 def par(toklist,tokpos):
     if(expecttok(toklist,tokpos,"PAR")):
@@ -415,22 +413,24 @@ def loop(toklist,tokpos):
        tokpos = tokpos+1
        if(bul:=expr(toklist,tokpos)):
           tokpos = bul[1]
+          exprlist,varlist = leagalize_exprs(bul[0])
           if(expecttok(toklist,tokpos,"COPEN")):
              tokpos=tokpos+1
              if (proc := simple_process(toklist,tokpos)):
                  tokpos =  proc[1]
                  if(expecttok(toklist,tokpos,"CCLOSE")):
-                    return({"loop":[bul[0],proc[0]]},tokpos+1)
+                    return({"loop":[exprlist,varlist,proc[0]]},tokpos+1)
 
 def choice(toklist,tokpos):
     if(bul:=expr(toklist,tokpos)):
+       exprlist,varlist = leagalize_exprs(bul[0])
        tokpos = bul[1]
        if(expecttok(toklist,tokpos,"COPEN")):
           tokpos = tokpos+1
           if (proc := simple_process(toklist,tokpos)):
               tokpos =  proc[1]
               if(expecttok(toklist,tokpos,"CCLOSE")):
-                  return({"choice":[bul[0],proc[0]]},tokpos+1)
+                  return({"choice":[exprlist,varlist,proc[0]]},tokpos+1)
 
 def cond(toklist,tokpos):
     if(expecttok(toklist,tokpos,"IF")):
@@ -488,7 +488,8 @@ def output(toklist,tokpos):
        if(expecttok(toklist,tokpos,"CHANOUT")):
            tokpos = tokpos + 1
            if(exp := expr(toklist,tokpos)):
-               return ({"output":[chan[0],exp[0]]},exp[1])
+               exprlist,varlist = leagalize_exprs(bul[0])
+               return ({"output":[chan[0],exprlist,varlist]},exp[1])
 
 def input(toklist,tokpos):
 
@@ -506,7 +507,8 @@ def assignment(toklist,tokpos):
        if(expecttok(toklist,tokpos,"EQ")):
            tokpos = tokpos + 1
            if(exp := expr(toklist,tokpos)):
-               return ({"assignment":[var[0],exp[0]]},exp[1])
+               exprlist,varlist = leagalize_exprs(bul[0])
+               return ({"assignment":[var[0],exprlist,varlist]},exp[1])
 
 def action(toklist,tokpos):
 
@@ -578,9 +580,7 @@ dependency_graph = {}
 uuid_declarations = {}
 visited = set()
 
-pnodes = {}
-
-def traverse_process(node, parent_uuid = None,parent_declarations=None):
+def traverse_process_populate_dat(node, parent_uuid = None,parent_declarations=None):
     if node is null:
         return
     uuid = node["process"]["uuid"]
@@ -611,40 +611,42 @@ def traverse_process(node, parent_uuid = None,parent_declarations=None):
                 first_elem = decl_list[0]
                 name = decl_list[1]
                 uuid_declarations[uuid][name] = first_elem["type"]
-            elif isinstance(decl_list[1], dict) and "expr" in decl_list[1]:
+            elif isinstance(decl_list[1], list):
                 name = decl_list[0]
                 expression_part = decl_list[1]
-                uuid_declarations[uuid][name] = {"type": "INT", "value": expression_part}
+                uuid_declarations[uuid][name] = {"type": "INT", "value": [decl_list[1],decl_list[2]]}
         traverse_process(next_process, uuid)
         del spec[0]
 
 
-detached_blocks = []
+detached_blocks = {}
 
 def detangle_par_blocks(node):
     if node is None:
         return
     if isinstance(node, list):
         for child_node in node:
-            detangle_par_blocks(child_node, detached_processes)
+            detangle_par_blocks(child_node)
 
     elif "constructionproc" in node["process"] and "par" in node["process"]["constructionproc"]:
         par_list = node["process"]["constructionproc"]["par"]
         new_par_list = []
         for child_proc in par_list:
+
+
             child_uuid = child_proc["process"]["uuid"]
-            detached_processes[child_uuid] = child_proc
+            detached_blocks[child_uuid] = child_proc
             new_par_list.append(child_uuid)
-            detangle_par_blocks(child_proc, detached_processes)
+            detangle_par_blocks(child_proc)
 
         node["process"]["constructionproc"]["par"] = new_par_list
     elif "constructionproc" in node["process"]:
         construction = node["process"]["constructionproc"]
         for key in construction:
-            detangle_par_blocks(construction[key], detached_processes)
+            detangle_par_blocks(construction[key])
     elif "specproc" in node["process"]:
         next_process = node["process"]["specproc"][1]
-        detangle_par_blocks(next_process, detached_processes)
+        detangle_par_blocks(next_process)
 
 def get_child_processes(construction):
     children = []
@@ -658,6 +660,69 @@ def get_child_processes(construction):
         children = [construction["loop"][1]]
     return children
 
+cops = {
+  "MINUS": "-",
+  "NOT": "!",
+  "PLUS": "+",
+  "MUL": "*",
+  "FS": "/",
+  "BS": "%",
+  "EQQ": "==",
+  "LT": "<",
+  "LE": "<=",
+  "GT": ">",
+  "GE": ">=",
+  "NEQ": "!=",
+  "AND": "&&",
+  "OR": "||",
+}
+
+'''
+operand :- element
+          | literal
+          | POPEN expr PCLOSE
+
+expr :- monadic_operator operand
+       | operand dyadic_operator operand
+       | operand
+'''
+
+def _leagalize_exprs(node,exprlist,varuse):
+    if 'expr' in node:
+        _legalize_exprs(node['expr'], exprlist, varuse)
+    elif 'dyadic_operator' in node:
+        _legalize_exprs(node[0], exprlist, varuse)
+        exprlist.append(cops[node[1]['dyadic_operator']])
+        _legalize_exprs(node[2], exprlist, varuse)
+    elif 'monadic_operator' in node.get(0, {}):
+        exprlist.append(cops[node[0]['monadic_operator']])
+        _legalize_exprs(node[1], exprlist, varuse)
+    elif 'operand' in node:
+        if isinstance(operand_value, list) and len(operand_value) == 3 and operand_value[0] == '(':
+            exprlist.append('(')
+            _legalize_exprs(node['operand'][1], exprlist, varuse)
+            exprlist.append(')')
+        else:
+            _legalize_exprs(operand_value, exprlist, varuse)
+    elif 'literal' in node:
+        exprlist.append(node['literal'][1])
+    elif 'element' in node:
+        element_value = node['element']
+        if isinstance(element_value, str):
+            exprlist.append(element_value)
+            varuse.append(element_value)
+        elif isinstance(element_value, list) and len(element_value) == 2:
+            exprlist.append(f"{element_value[0]}[")
+            varuse.append(element_value[0])
+            _legalize_exprs(element_value[1], exprlist, varuse)
+            exprlist.append(']')
+    return (exprlist, varuse)
+
+def leagalize_exprs(node):
+    return _leagalize_exprs(node,[],[])
+
+
+main_tree = None
 
 def main():
     filestr = ""
@@ -681,8 +746,9 @@ def main():
        print(nlines)
        if(treejson):
          print(json.dumps(treejson[0], indent=2))
-         create_dependency_graph(treejson[0])
-         #create_communication_graph
+         traverse_process_populate_dat(treejson[0])
+         #collapse_seq_par(treejson[0]) #exclude for now trivial to do
+         detangle_par_blocks(treejson[0])
          #partial conversion to c
          #legalize communication etc
 
