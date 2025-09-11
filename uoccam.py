@@ -7,6 +7,18 @@ import copy
 import secrets
 import string
 
+
+c_includes_type1 = '''
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <mqueue.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <errno.h>
+#include <signal.h>
+'''
+
 def make_uuid(length=12):
     if length < 1:
         raise ValueError("Length must be at least 1")
@@ -314,7 +326,7 @@ def decleration(toklist,tokpos):
             if(expecttok(toklist,tokpos,"EQQ")):
                tokpos = tokpos + 1
                if(typ := expr(toklist,tokpos)):
-                  exprlist,varlist = leagalize_exprs(typ[0])
+                  exprlist,varlist = legalize_exprs(typ[0])
                   return ({"decleration":[nam[0],exprlist,varlist]},typ[1])
 
 def specification(toklist,tokpos):
@@ -413,7 +425,7 @@ def loop(toklist,tokpos):
        tokpos = tokpos+1
        if(bul:=expr(toklist,tokpos)):
           tokpos = bul[1]
-          exprlist,varlist = leagalize_exprs(bul[0])
+          exprlist,varlist = legalize_exprs(bul[0])
           if(expecttok(toklist,tokpos,"COPEN")):
              tokpos=tokpos+1
              if (proc := simple_process(toklist,tokpos)):
@@ -423,7 +435,7 @@ def loop(toklist,tokpos):
 
 def choice(toklist,tokpos):
     if(bul:=expr(toklist,tokpos)):
-       exprlist,varlist = leagalize_exprs(bul[0])
+       exprlist,varlist = legalize_exprs(bul[0])
        tokpos = bul[1]
        if(expecttok(toklist,tokpos,"COPEN")):
           tokpos = tokpos+1
@@ -488,7 +500,7 @@ def output(toklist,tokpos):
        if(expecttok(toklist,tokpos,"CHANOUT")):
            tokpos = tokpos + 1
            if(exp := expr(toklist,tokpos)):
-               exprlist,varlist = leagalize_exprs(bul[0])
+               exprlist,varlist = legalize_exprs(bul[0])
                return ({"output":[chan[0],exprlist,varlist]},exp[1])
 
 def input(toklist,tokpos):
@@ -507,7 +519,7 @@ def assignment(toklist,tokpos):
        if(expecttok(toklist,tokpos,"EQ")):
            tokpos = tokpos + 1
            if(exp := expr(toklist,tokpos)):
-               exprlist,varlist = leagalize_exprs(bul[0])
+               exprlist,varlist = legalize_exprs(bul[0])
                return ({"assignment":[var[0],exprlist,varlist]},exp[1])
 
 def action(toklist,tokpos):
@@ -581,7 +593,7 @@ uuid_declarations = {}
 visited = set()
 
 def traverse_process_populate_dat(node, parent_uuid = None,parent_declarations=None):
-    if node is null:
+    if node is None:
         return
     uuid = node["process"]["uuid"]
     if uuid not in dependency_graph:
@@ -591,6 +603,16 @@ def traverse_process_populate_dat(node, parent_uuid = None,parent_declarations=N
     if uuid in visited:
         return
     visited.add(uuid)
+
+    if "actionproc" in proc_data:
+        action = proc_data["actionproc"]
+        if "input" in action:
+            channel_name = action["input"][0]
+            uuid_declarations[uuid]["channel_io"][channel_name] = "input"
+        if "output" in action:
+            channel_name = action["output"][0]
+            uuid_declarations[uuid]["channel_io"][channel_name] = "output"
+
     if "instanceproc" in node["process"]:
         instance = node["process"]["instanceproc"]
         referenced_name = instance[0]
@@ -632,8 +654,6 @@ def detangle_par_blocks(node):
         par_list = node["process"]["constructionproc"]["par"]
         new_par_list = []
         for child_proc in par_list:
-
-
             child_uuid = child_proc["process"]["uuid"]
             detached_blocks[child_uuid] = child_proc
             new_par_list.append(child_uuid)
@@ -652,11 +672,11 @@ def get_child_processes(construction):
     children = []
     if "seq" in construction:
         children = construction["seq"]
-    else if "par" in construction:
+    elif "par" in construction:
         children = construction["par"]
-    else if "cond" in construction:
+    elif "cond" in construction:
         children = [construction["cond"]["choice"]]
-    else if "loop" in construction:
+    elif "loop" in construction:
         children = [construction["loop"][1]]
     return children
 
@@ -687,7 +707,7 @@ expr :- monadic_operator operand
        | operand
 '''
 
-def _leagalize_exprs(node,exprlist,varuse):
+def _legalize_exprs(node,exprlist,varuse):
     if 'expr' in node:
         _legalize_exprs(node['expr'], exprlist, varuse)
     elif 'dyadic_operator' in node:
@@ -718,11 +738,118 @@ def _leagalize_exprs(node,exprlist,varuse):
             exprlist.append(']')
     return (exprlist, varuse)
 
-def leagalize_exprs(node):
-    return _leagalize_exprs(node,[],[])
+def legalize_exprs(node):
+    return _legalize_exprs(node,[],[])
 
+def check_channel_usage(declarations):
+    global_channel_io = {}
+
+    for uuid, proc_data in declarations.items():
+        channel_io = proc_data.get("channel_io", {})
+        input_channels = set()
+        output_channels = set()
+        for name, io_type in channel_io.items():
+            if io_type == "input":
+                input_channels.add(name)
+            elif io_type == "output":
+                output_channels.add(name)
+        both_io = input_channels.intersection(output_channels)
+        if both_io:
+            print(f"Error: Channel(s) {both_io} used for both input and output in process '{uuid}'")
+        for channel_name, io_type in channel_io.items():
+            if channel_name in global_channel_io:
+                if global_channel_io[channel_name] == io_type:
+                    print(f"Error: Channel '{channel_name}' is used as '{io_type}' in both processes '{global_channel_io[channel_name + '_uuid']}' and '{uuid}'. A channel can only be referred to as one type of I/O.")
+            else:
+                global_channel_io[channel_name] = io_type
+                global_channel_io[channel_name + '_uuid'] = uuid
 
 main_tree = None
+
+partial_legal_list = []
+type_mapping = {
+    "INT": "int",
+    "CHAN": "Channel"
+}
+#type represent for which machine we are generating c code for
+#default linux
+
+def legalize_to_c(node,type=1,parent_node_type = None,proc_uuids):
+    uuid = ""
+    if "process" in node:
+       uuid = node["process"]["uuid"]
+       proc_uuids.append(uuid)
+       #some stuff to fetch decls using uuid and legalize later
+       legalize_to_c(= [k for k in my_dict.keys() if k != "uuid"][0],type,parent_node_type)
+
+    if "STOP" in node:
+       if(type == 1):
+          partial_legal_list.append("kill(getpid(), SIGSTOP);")
+       else:
+          partial_legal_list.append("vTaskSuspend(NULL);")
+
+    if "actionproc" in node:
+        action = node["actionproc"]["action"]
+        if "assignment" in action:
+           assgn = action["assignment"]
+           partial_legal_list.append(assgn[0]," = ",''.join(str(item) for item in assgn[1])
+        elif "input" in action:
+           pass #type dependent
+        elif "output" in action:
+           pass #type dependent
+
+    if "constructionproc" in node:
+        construction = node["process"]["constructionproc"]
+        if "seq" in construction:
+           partial_legal_list.append("{")
+           for proc in construction["seq"]:
+               legalize_to_c(proc,type,"seq",proc_uuids)
+           partial_legal_list.append("}")
+
+        if "par" in construction:
+           partial_legal_list.append("{")
+           for proc in construction["par"]:
+               partial_legal_list.append(
+           partial_legal_list.append("}")
+           if 'seq' == parent_node_type:
+              partial_legal_list.append({"synchronize":construction["par"])
+
+    if "specproc" in node:
+       decls = uuid_declarations[uuid]
+       proc = node["specproc"]
+       for name in decls:
+           decl = decls[name]
+           typ = decl["type"]
+
+           if isinstance(typ, str):
+              c_type = type_mapping.get(typ, typ)
+              if "value" in decl:
+                 cexprlist = decl["value"][0]
+                 expr = ''.join(cexprlist)
+                 print(f"{c_type} {name} = {expr};")
+              else:
+                 partial_legal_list.append(f"{c_type} {name};")
+
+           elif isinstance(typ, list):
+                size = typ[0]
+                type_name = typ[1]
+                c_type = type_mapping.get(type_name, type_name)
+                partial_legal_list.append((f"{c_type} {name}[{size}];")
+
+if isinstance(typ, str):
+    c_type = type_mapping.get(typ, typ)
+    if "value" in decl:
+        cexprlist = decl["value"][0]
+        expr = ''.join(cexprlist)
+        print(f"{c_type} {name} = {expr};")
+    else:
+        print(f"{c_type} {name};")
+
+elif isinstance(typ, list):
+    size = typ[0]
+    type_name = typ[1]
+    c_type = type_mapping.get(type_name, type_name)
+    print(f"{c_type} {name}[{size}];")
 
 def main():
     filestr = ""
@@ -749,7 +876,9 @@ def main():
          traverse_process_populate_dat(treejson[0])
          #collapse_seq_par(treejson[0]) #exclude for now trivial to do
          detangle_par_blocks(treejson[0])
-         #partial conversion to c
+         check_channel_usage(uuid_declarations)
+         #check_par_usage
+         legalize_to_c(treejson[0])
          #legalize communication etc
 
        else:
